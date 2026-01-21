@@ -196,15 +196,6 @@ function drawMainMenuScreen() {
   if(!menuMusic.isPlaying()) {
     menuMusic.loop();
   }
-  
-  // Gamepad: A button or Start button to start game
-  if (gamepad) {
-    if ((gamepad.buttons[0] && gamepad.buttons[0].pressed) || 
-        (gamepad.buttons[9] && gamepad.buttons[9].pressed)) {
-      startGame();
-      return;
-    }
-  }
 
   let currentTime = millis();
   if (currentTime - lastBlinkTime > blinkInterval) {
@@ -1208,10 +1199,13 @@ function resetGame() {
 
 // ==================== GAMEPAD SUPPORT ====================
 
+let gamepadButtonStates = [];
+
 function pollGamepad() {
   let gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
   
   // Find the first connected gamepad
+  gamepad = null;
   for (let i = 0; i < gamepads.length; i++) {
     if (gamepads[i]) {
       gamepad = gamepads[i];
@@ -1219,43 +1213,44 @@ function pollGamepad() {
     }
   }
   
-  // Handle gamepad input for different screens
-  if (gamepad) {
-    handleGamepadMenuInput();
-  }
+  if (!gamepad) return;
   
-  // Store previous button states for edge detection
-  if (gamepad) {
-    prevGamepadButtons = gamepad.buttons.map(b => b.pressed);
-  }
+  // Get current button states
+  let currentStates = gamepad.buttons.map(b => b.pressed);
+  
+  // Handle gamepad input for different screens
+  handleGamepadMenuInput(currentStates);
+  
+  // Store current states as previous for next frame
+  gamepadButtonStates = currentStates;
 }
 
 // Check if a gamepad button was just pressed (edge detection)
-function gamepadButtonPressed(buttonIndex) {
-  if (!gamepad || !gamepad.buttons[buttonIndex]) return false;
+function gamepadButtonJustPressed(buttonIndex, currentStates) {
+  if (!gamepad || buttonIndex >= currentStates.length) return false;
   
-  let currentPressed = gamepad.buttons[buttonIndex].pressed;
-  let prevPressed = prevGamepadButtons[buttonIndex] || false;
+  let currentPressed = currentStates[buttonIndex];
+  let prevPressed = gamepadButtonStates[buttonIndex] || false;
   
   return currentPressed && !prevPressed;
 }
 
 // Handle gamepad input for menu screens
-function handleGamepadMenuInput() {
+function handleGamepadMenuInput(currentStates) {
   switch (currentScreen) {
     case MAIN_MENU:
       // A button or Start button to start game
-      if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
+      if (gamepadButtonJustPressed(0, currentStates) || gamepadButtonJustPressed(9, currentStates)) {
         startGame();
       }
       break;
     case GAME_OVER:
       // D-pad or left stick for letter selection
-      handleGameOverGamepadInput();
+      handleGameOverGamepadInput(currentStates);
       break;
     case LEADERBOARD:
       // A button or Start to return to main menu
-      if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
+      if (gamepadButtonJustPressed(0, currentStates) || gamepadButtonJustPressed(9, currentStates)) {
         resetGame();
         currentScreen = MAIN_MENU;
         uiContainer.html('');
@@ -1269,12 +1264,12 @@ let gamepadLetterIndex = 0;
 let gamepadLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 let lastAxisX = 0;
 
-function handleGameOverGamepadInput() {
+function handleGameOverGamepadInput(currentStates) {
   // Navigate letters with D-pad left/right
-  if (gamepadButtonPressed(15)) { // D-pad right
+  if (gamepadButtonJustPressed(15, currentStates)) { // D-pad right
     gamepadLetterIndex = (gamepadLetterIndex + 1) % 26;
   }
-  if (gamepadButtonPressed(14)) { // D-pad left
+  if (gamepadButtonJustPressed(14, currentStates)) { // D-pad left
     gamepadLetterIndex = (gamepadLetterIndex - 1 + 26) % 26;
   }
   
@@ -1289,19 +1284,19 @@ function handleGameOverGamepadInput() {
   lastAxisX = currentAxisX;
   
   // A button to add letter
-  if (gamepadButtonPressed(0) && playerName.length < 3) {
+  if (gamepadButtonJustPressed(0, currentStates) && playerName.length < 3) {
     playerName += gamepadLetters[gamepadLetterIndex];
     underscores = playerName + '_'.repeat(3 - playerName.length);
   }
   
   // B button to delete letter
-  if (gamepadButtonPressed(1) && playerName.length > 0) {
+  if (gamepadButtonJustPressed(1, currentStates) && playerName.length > 0) {
     playerName = playerName.slice(0, -1);
     underscores = playerName + '_'.repeat(3 - playerName.length);
   }
   
   // Start button to confirm (when 3 letters entered)
-  if (gamepadButtonPressed(9) && playerName.length === 3) {
+  if (gamepadButtonJustPressed(9, currentStates) && playerName.length === 3) {
     saveScore();
     currentScreen = LEADERBOARD;
   }
