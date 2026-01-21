@@ -37,6 +37,11 @@ let showText = true;
 let playerName = '';
 let underscores = '___';
 
+// Gamepad variables
+let gamepad = null;
+let prevGamepadButtons = [];
+let gamepadDeadzone = 0.2;
+
 const LOADING = 0;
 const MAIN_MENU = 1;
 const PLAY = 2;
@@ -146,6 +151,9 @@ function setup() {
 
 function draw() {
   background('#121012');
+  
+  // Poll gamepad
+  pollGamepad();
 
   switch (currentScreen) {
     case LOADING:
@@ -187,6 +195,11 @@ function drawMainMenuScreen() {
 
   if(!menuMusic.isPlaying()) {
     menuMusic.loop();
+  }
+  
+  // Gamepad: A button or Start button to start game
+  if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
+    startGame();
   }
 
   let currentTime = millis();
@@ -298,21 +311,60 @@ function drawPlayScreen() {
   updatePlanets();
   shootLaser();
 
+  // Keyboard input
+  let moveX = 0;
+  let moveY = 0;
+  
   if (kb.pressing('left')) {
-    player.velocity.x = -playerSpeed;
+    moveX = -playerSpeed;
   } else if (kb.pressing('right')) {
-    player.velocity.x = playerSpeed;
-  } else {
-    player.velocity.x = 0;
+    moveX = playerSpeed;
   }
   
   if (kb.pressing('up')) {
-    player.velocity.y = -playerSpeed;
+    moveY = -playerSpeed;
   } else if (kb.pressing('down')) {
-    player.velocity.y = playerSpeed;
-  } else {
-    player.velocity.y = 0;
+    moveY = playerSpeed;
   }
+  
+  // Gamepad input (left stick or D-pad)
+  if (gamepad) {
+    // Left stick
+    let stickX = gamepad.axes[0];
+    let stickY = gamepad.axes[1];
+    
+    if (Math.abs(stickX) > gamepadDeadzone) {
+      moveX = stickX * playerSpeed;
+    }
+    if (Math.abs(stickY) > gamepadDeadzone) {
+      moveY = stickY * playerSpeed;
+    }
+    
+    // D-pad (buttons 12-15: up, down, left, right)
+    if (gamepad.buttons[14] && gamepad.buttons[14].pressed) {
+      moveX = -playerSpeed; // D-pad left
+    } else if (gamepad.buttons[15] && gamepad.buttons[15].pressed) {
+      moveX = playerSpeed; // D-pad right
+    }
+    if (gamepad.buttons[12] && gamepad.buttons[12].pressed) {
+      moveY = -playerSpeed; // D-pad up
+    } else if (gamepad.buttons[13] && gamepad.buttons[13].pressed) {
+      moveY = playerSpeed; // D-pad down
+    }
+    
+    // Shooting with A button (0), X button (2), or Right Trigger (7)
+    if ((gamepad.buttons[0] && gamepad.buttons[0].pressed) ||
+        (gamepad.buttons[2] && gamepad.buttons[2].pressed) ||
+        (gamepad.buttons[7] && gamepad.buttons[7].value > 0.5)) {
+      isShooting = true;
+    } else if (!kb.pressing(' ')) {
+      // Only stop shooting if keyboard space is also not pressed
+      isShooting = false;
+    }
+  }
+  
+  player.velocity.x = moveX;
+  player.velocity.y = moveY;
   
   player.position.x = constrain(player.position.x, 25, width - 25);
   player.position.y = constrain(player.position.y, height / 2, height - 25);
@@ -1149,3 +1201,110 @@ function resetGame() {
   powerupActive = false;
   shieldActive = false;
 }
+
+// ==================== GAMEPAD SUPPORT ====================
+
+function pollGamepad() {
+  let gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  
+  // Find the first connected gamepad
+  for (let i = 0; i < gamepads.length; i++) {
+    if (gamepads[i]) {
+      gamepad = gamepads[i];
+      break;
+    }
+  }
+  
+  // Handle gamepad input for different screens
+  if (gamepad) {
+    handleGamepadMenuInput();
+  }
+  
+  // Store previous button states for edge detection
+  if (gamepad) {
+    prevGamepadButtons = gamepad.buttons.map(b => b.pressed);
+  }
+}
+
+// Check if a gamepad button was just pressed (edge detection)
+function gamepadButtonPressed(buttonIndex) {
+  if (!gamepad || !gamepad.buttons[buttonIndex]) return false;
+  
+  let currentPressed = gamepad.buttons[buttonIndex].pressed;
+  let prevPressed = prevGamepadButtons[buttonIndex] || false;
+  
+  return currentPressed && !prevPressed;
+}
+
+// Handle gamepad input for menu screens
+function handleGamepadMenuInput() {
+  switch (currentScreen) {
+    case GAME_OVER:
+      // D-pad or left stick for letter selection
+      handleGameOverGamepadInput();
+      break;
+    case LEADERBOARD:
+      // A button or Start to return to main menu
+      if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
+        resetGame();
+        currentScreen = MAIN_MENU;
+        uiContainer.html('');
+      }
+      break;
+  }
+}
+
+// Handle gamepad input for the game over name entry screen
+let gamepadLetterIndex = 0;
+let gamepadLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+let lastAxisX = 0;
+
+function handleGameOverGamepadInput() {
+  // Navigate letters with D-pad left/right
+  if (gamepadButtonPressed(15)) { // D-pad right
+    gamepadLetterIndex = (gamepadLetterIndex + 1) % 26;
+  }
+  if (gamepadButtonPressed(14)) { // D-pad left
+    gamepadLetterIndex = (gamepadLetterIndex - 1 + 26) % 26;
+  }
+  
+  // Left stick navigation with edge detection
+  let currentAxisX = gamepad.axes[0];
+  if (currentAxisX > 0.7 && lastAxisX <= 0.7) {
+    gamepadLetterIndex = (gamepadLetterIndex + 1) % 26;
+  }
+  if (currentAxisX < -0.7 && lastAxisX >= -0.7) {
+    gamepadLetterIndex = (gamepadLetterIndex - 1 + 26) % 26;
+  }
+  lastAxisX = currentAxisX;
+  
+  // A button to add letter
+  if (gamepadButtonPressed(0) && playerName.length < 3) {
+    playerName += gamepadLetters[gamepadLetterIndex];
+    underscores = playerName + '_'.repeat(3 - playerName.length);
+  }
+  
+  // B button to delete letter
+  if (gamepadButtonPressed(1) && playerName.length > 0) {
+    playerName = playerName.slice(0, -1);
+    underscores = playerName + '_'.repeat(3 - playerName.length);
+  }
+  
+  // Start button to confirm (when 3 letters entered)
+  if (gamepadButtonPressed(9) && playerName.length === 3) {
+    saveScore();
+    currentScreen = LEADERBOARD;
+  }
+}
+
+// Gamepad connection events
+window.addEventListener('gamepadconnected', function(e) {
+  console.log('Gamepad connected:', e.gamepad.id);
+});
+
+window.addEventListener('gamepaddisconnected', function(e) {
+  console.log('Gamepad disconnected:', e.gamepad.id);
+  if (gamepad && gamepad.index === e.gamepad.index) {
+    gamepad = null;
+  }
+});
