@@ -198,8 +198,12 @@ function drawMainMenuScreen() {
   }
   
   // Gamepad: A button or Start button to start game
-  if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
-    startGame();
+  if (gamepad) {
+    if ((gamepad.buttons[0] && gamepad.buttons[0].pressed) || 
+        (gamepad.buttons[9] && gamepad.buttons[9].pressed)) {
+      startGame();
+      return;
+    }
   }
 
   let currentTime = millis();
@@ -1239,6 +1243,12 @@ function gamepadButtonPressed(buttonIndex) {
 // Handle gamepad input for menu screens
 function handleGamepadMenuInput() {
   switch (currentScreen) {
+    case MAIN_MENU:
+      // A button or Start button to start game
+      if (gamepadButtonPressed(0) || gamepadButtonPressed(9)) {
+        startGame();
+      }
+      break;
     case GAME_OVER:
       // D-pad or left stick for letter selection
       handleGameOverGamepadInput();
